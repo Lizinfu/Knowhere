@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "划词悬浮地图",
+  "version": "2.0",
+  "description": "划词选中地名后，在鼠标位置悬浮展示 Leaflet 地图",
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "map.html", 
+        "map.js", 
+        "leaflet/leaflet.js", 
+        "leaflet/leaflet.css",
+        "leaflet/images/*"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
