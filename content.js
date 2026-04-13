@@ -1,38 +1,29 @@
 let popupIframe = null; 
 
-document.addEventListener('mouseup', async function(event) {
+document.addEventListener('mouseup', function(event) {
     let selectedText = window.getSelection().toString().trim();
 
     if (selectedText.length > 0) {
-        // 记录鼠标松开时的屏幕坐标
         const mouseX = event.clientX;
         const mouseY = event.clientY;
 
-        const apiUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(selectedText)}&format=json&limit=1`;
+        console.log(`【插件】划词: ${selectedText}，发送给后台处理...`);
 
-        try {
-            console.log(`【插件】正在查询 "${selectedText}" 的坐标...`);
-            const response = await fetch(apiUrl);
-            if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
-            
-            const data = await response.json();
-
-            if (data && data.length > 0) {
-                const lat = data[0].lat;
-                const lon = data[0].lon;
-                console.log(`【插件】找到坐标：Lat: ${lat}, Lon: ${lon}，准备弹出地图！`);
-                
-                showMapPopup(lat, lon, mouseX, mouseY);
-            } else {
-                console.warn(`【插件】未找到 "${selectedText}" 的坐标。`);
+        // 向 background.js 发送消息
+        chrome.runtime.sendMessage(
+            { type: "SEARCH_LOCATION", text: selectedText }, 
+            function(response) {
+                if (response && response.success) {
+                    console.log(`【插件】获取成功 (来源: ${response.source}):`, response.data);
+                    showMapPopup(response.data.lat, response.data.lon, mouseX, mouseY);
+                } else {
+                    console.warn(`【插件】查询失败:`, response ? response.error : '未知错误');
+                }
             }
-        } catch (error) {
-            console.error("【插件】请求异常：", error.message);
-        }
+        );
     }
 });
 
-// 点击网页空白处时关闭悬浮窗
 document.addEventListener('mousedown', function(event) {
     if (popupIframe && event.target !== popupIframe) {
         popupIframe.remove();
@@ -40,7 +31,6 @@ document.addEventListener('mousedown', function(event) {
     }
 });
 
-// 弹出悬浮窗的逻辑
 function showMapPopup(lat, lon, x, y) {
     if (popupIframe) popupIframe.remove();
 
@@ -48,7 +38,6 @@ function showMapPopup(lat, lon, x, y) {
     const mapUrl = chrome.runtime.getURL(`map.html?lat=${lat}&lon=${lon}`);
     popupIframe.src = mapUrl;
 
-    // 防止弹窗超出屏幕可视范围
     const popupWidth = 300;
     const popupHeight = 200;
     let leftPos = x + 10;

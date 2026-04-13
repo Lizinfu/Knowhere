@@ -1,8 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "划词悬浮地图",
-  "version": "2.0",
-  "description": "划词选中地名后，在鼠标位置悬浮展示 Leaflet 地图",
+  "name": "历史阅读地图辅助",
+  "version": "3.0",
+  "description": "辅助历史书籍阅读，动态解析历史地名并展示地图",
+  "permissions": ["background"],
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
