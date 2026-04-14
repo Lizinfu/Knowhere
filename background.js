@@ -19,7 +19,7 @@ async function queryLLMForLocation(placeName, era) {
 
     // 提示词升级：加入朝代限制，并要求输出 desc
     const systemPrompt = `
-        你是一个精通中国历史地理的专家。
+        你是一个精通世界历史地理的专家。
         ${eraContext}
         请严格结合该历史背景，分析地名“${placeName}”对应的现代地理位置。
         例如：背景为“北宋”，地名“东京”应指向“开封”而不是日本；背景为“三国”，地名“建业”应指向南京。
