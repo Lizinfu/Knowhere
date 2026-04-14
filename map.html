@@ -5,65 +5,55 @@
     <link rel="stylesheet" href="leaflet/leaflet.css" />
     <style>
         html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; font-family: 'PingFang SC', 'Microsoft YaHei', serif; background-color: #fbf8f1; color: #5c4033; }
-        
-        /* 状态屏幕的通用样式 */
         .screen { display: none; width: 100%; height: 100%; }
         .screen.active { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
         
-        /* 1. 加载中动画样式 */
-        .loader {
-            border: 4px solid #e8dec9;
-            border-top: 4px solid #8b5a2b;
-            border-radius: 50%;
-            width: 32px;
-            height: 32px;
-            animation: spin 1s linear infinite;
-            margin-bottom: 12px;
-        }
+        .loader { border: 4px solid #e8dec9; border-top: 4px solid #8b5a2b; border-radius: 50%; width: 32px; height: 32px; animation: spin 1s linear infinite; margin-bottom: 12px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .loading-text { font-size: 13px; color: #8b5a2b; font-weight: bold; }
         .query-word { color: #d35400; background: #faedce; padding: 2px 6px; border-radius: 4px; margin-top: 6px; font-size: 12px;}
 
-        /* 2. 地图界面的顶部信息栏 */
-        #map-container { display: none; flex-direction: column; }
+        /* 地图页布局优化：上下分栏 */
+        #map-container { display: none; flex-direction: column; height: 100%; }
         #map-container.active { display: flex; }
-        #top-bar {
-            height: 28px;
-            background: #f5ebce;
-            border-bottom: 1px solid #d4c4a8;
-            line-height: 28px;
-            padding: 0 10px;
-            font-size: 12px;
-            font-weight: bold;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-            z-index: 1000;
+        #top-bar { height: 28px; background: #f5ebce; border-bottom: 1px solid #d4c4a8; line-height: 28px; padding: 0 10px; font-size: 13px; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 2px 4px rgba(0,0,0,0.05); z-index: 1000; }
+        
+        #map { flex: 1; width: 100%; } /* 地图占据剩余空间 */
+        
+        /* 新增：底部介绍文本区域 */
+        #desc-bar { 
+            height: 60px; /* 固定高度容纳两行字 */
+            background: #fffdf8; 
+            border-top: 1px solid #d4c4a8; 
+            padding: 8px 12px; 
+            font-size: 12px; 
+            line-height: 1.5; 
+            color: #4a3627;
+            overflow-y: auto; /* 字数多时可滚动 */
+            box-sizing: border-box;
+            text-align: justify;
         }
-        #map { flex: 1; width: 100%; }
 
-        /* 3. 错误样式 */
         .error-icon { font-size: 24px; margin-bottom: 8px; }
         .error-text { font-size: 13px; color: #c0392b; padding: 0 15px;}
     </style>
 </head>
 <body>
-
-    <!-- 状态 1: 加载中 -->
+    <!-- 加载页 -->
     <div id="screen-loading" class="screen active">
         <div class="loader"></div>
         <div class="loading-text">正在翻阅历史地理志...</div>
         <div class="query-word" id="display-query"></div>
     </div>
 
-    <!-- 状态 2: 地图展示 -->
+    <!-- 地图页 -->
     <div id="map-container" class="screen">
         <div id="top-bar">📍 <span id="display-name">加载中...</span></div>
         <div id="map"></div>
+        <div id="desc-bar"></div> <!-- 新增介绍栏 -->
     </div>
 
-    <!-- 状态 3: 找不到位置 -->
+    <!-- 错误页 -->
     <div id="screen-error" class="screen">
         <div class="error-icon">📜❓</div>
         <div class="error-text" id="error-msg">未找到该地名的记载</div>

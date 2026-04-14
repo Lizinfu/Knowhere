@@ -1,135 +1,139 @@
 let popupIframe = null; 
-let isPluginEnabled = true; // 插件全局开关状态
+let isPluginEnabled = true; 
+let currentEra = ''; // 存储当前填写的朝代/年份
 
-// ==========================================
-// 1. 初始化并在网页右下角创建一个控制开关
-// ==========================================
-function createToggleButton() {
-    const btn = document.createElement('div');
-    btn.id = 'history-map-toggle-btn';
-    
-    // 初始化按钮样式 (固定在右下角，半透明，鼠标移入清晰)
-    btn.style.cssText = `
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        background: #fbf8f1;
-        border: 1px solid #d4c4a8;
-        color: #8b5a2b;
-        padding: 8px 12px;
-        border-radius: 20px;
-        font-size: 13px;
-        font-weight: bold;
-        cursor: pointer;
-        z-index: 2147483647;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        transition: all 0.3s ease;
-        opacity: 0.6;
-        user-select: none;
-        font-family: 'PingFang SC', sans-serif;
+// 初始化悬浮控制面板
+function createControlPanel() {
+    const panel = document.createElement('div');
+    panel.id = 'history-map-panel';
+    panel.style.cssText = `
+        position: fixed; bottom: 20px; right: 20px;
+        background: #fbf8f1; border: 1px solid #d4c4a8;
+        padding: 8px 12px; border-radius: 12px;
+        display: flex; gap: 10px; align-items: center;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        z-index: 2147483647; font-family: 'PingFang SC', sans-serif;
+        transition: opacity 0.3s; opacity: 0.5;
     `;
 
-    // 鼠标交互效果
-    btn.onmouseenter = () => btn.style.opacity = '1';
-    btn.onmouseleave = () => { if(isPluginEnabled) btn.style.opacity = '0.6'; };
+    panel.onmouseenter = () => panel.style.opacity = '1';
+    panel.onmouseleave = () => { if(isPluginEnabled) panel.style.opacity = '0.5'; };
 
-    // 读取本地存储中的开关状态
-    chrome.storage.local.get(['mapPluginEnabled'], function(result) {
-        if (result.mapPluginEnabled !== undefined) {
-            isPluginEnabled = result.mapPluginEnabled;
+    // 1. 开关按钮
+    const toggleBtn = document.createElement('div');
+    toggleBtn.style.cssText = `cursor: pointer; font-size: 13px; font-weight: bold; color: #8b5a2b; user-select: none; white-space: nowrap;`;
+    
+    // 2. 朝代输入框 (使用 HTML5 datalist 实现既能下拉又能手打)
+    const eraInputWrapper = document.createElement('div');
+    eraInputWrapper.innerHTML = `
+        <input type="text" id="history-era-input" list="dynasty-list" placeholder="朝代/年份 (不限)" 
+               style="width: 110px; padding: 2px 6px; border: 1px solid #ccc; border-radius: 4px; font-size: 12px; outline: none; background: white; color: #333;">
+        <datalist id="dynasty-list">
+            <option value="春秋战国"></option>
+            <option value="秦汉"></option>
+            <option value="三国"></option>
+            <option value="两晋南北朝"></option>
+            <option value="唐"></option>
+            <option value="北宋"></option>
+            <option value="南宋"></option>
+            <option value="元"></option>
+            <option value="明"></option>
+            <option value="清"></option>
+            <option value="民国"></option>
+        </datalist>
+    `;
+
+    panel.appendChild(toggleBtn);
+    panel.appendChild(eraInputWrapper);
+    document.body.appendChild(panel);
+
+    const eraInput = document.getElementById('history-era-input');
+
+    // 读取存储的状态
+    chrome.storage.local.get(['mapPluginEnabled', 'mapPluginEra'], function(result) {
+        if (result.mapPluginEnabled !== undefined) isPluginEnabled = result.mapPluginEnabled;
+        if (result.mapPluginEra !== undefined) {
+            currentEra = result.mapPluginEra;
+            eraInput.value = currentEra;
         }
-        updateButtonUI(btn);
+        updateUI(toggleBtn, eraInput);
     });
 
-    // 点击切换状态
-    btn.onclick = () => {
+    // 开关点击事件
+    toggleBtn.onclick = () => {
         isPluginEnabled = !isPluginEnabled;
-        chrome.storage.local.set({ mapPluginEnabled: isPluginEnabled }); // 记住用户选择
-        updateButtonUI(btn);
+        chrome.storage.local.set({ mapPluginEnabled: isPluginEnabled });
+        updateUI(toggleBtn, eraInput);
     };
 
-    document.body.appendChild(btn);
+    // 输入框内容改变事件 (实时保存)
+    eraInput.addEventListener('change', (e) => {
+        currentEra = e.target.value.trim();
+        chrome.storage.local.set({ mapPluginEra: currentEra });
+    });
 }
 
-// 辅助函数：更新按钮文字和颜色
-function updateButtonUI(btn) {
+function updateUI(btn, input) {
     if (isPluginEnabled) {
-        btn.innerText = '🗺️ 划词地图：开启';
-        btn.style.background = '#fbf8f1';
-        btn.style.opacity = '0.6';
+        btn.innerText = '🗺️ 划词：开';
+        input.style.display = 'block'; // 开启时显示输入框
     } else {
-        btn.innerText = '💤 划词地图：关闭';
-        btn.style.background = '#e0e0e0';
-        btn.style.opacity = '0.4';
+        btn.innerText = '💤 划词：关';
+        input.style.display = 'none';  // 关闭时隐藏输入框
     }
 }
 
-// 执行创建按钮
-createToggleButton();
-
+createControlPanel();
 
 // ==========================================
-// 2. 划词逻辑（受开关控制）
+// 划词与弹窗逻辑
 // ==========================================
 document.addEventListener('mouseup', function(event) {
-    // 【核心拦截】：如果开关关了，直接什么都不做
     if (!isPluginEnabled) return;
-
     let selectedText = window.getSelection().toString().trim();
-
     if (selectedText.length > 0 && selectedText.length <= 15) {
+        // 如果是在输入框里点击和划词，不触发地图
+        if (event.target.id === 'history-era-input') return;
+        
         const mouseX = event.clientX;
         const mouseY = event.clientY;
-        showMapPopup(selectedText, mouseX, mouseY);
+        showMapPopup(selectedText, currentEra, mouseX, mouseY);
     }
 });
 
 document.addEventListener('mousedown', function(event) {
-    // 点击开关按钮时不关闭弹窗，点击其他地方才关闭
-    if (event.target.id === 'history-map-toggle-btn') return;
-
+    const panel = document.getElementById('history-map-panel');
+    if (panel && panel.contains(event.target)) return;
     if (popupIframe && event.target !== popupIframe) {
         popupIframe.remove();
         popupIframe = null;
     }
 });
 
-
-// ==========================================
-// 3. 弹窗展示逻辑（尺寸已放大）
-// ==========================================
-function showMapPopup(text, x, y) {
+// 新增参数 era 传入
+function showMapPopup(text, era, x, y) {
     if (popupIframe) popupIframe.remove();
-
     popupIframe = document.createElement('iframe');
-    const mapUrl = chrome.runtime.getURL(`map.html?q=${encodeURIComponent(text)}`);
+    
+    // 将查询词和朝代一起拼到 URL 里传给 iframe
+    const mapUrl = chrome.runtime.getURL(`map.html?q=${encodeURIComponent(text)}&era=${encodeURIComponent(era)}`);
     popupIframe.src = mapUrl;
 
-    // 【修改点】：放大了悬浮窗的尺寸
-    const popupWidth = 420;  // 从 320 放大到 420
-    const popupHeight = 300; // 从 220 放大到 300
-    
+    // 进一步调高弹窗，腾出下方区域显示文字描述
+    const popupWidth = 420;
+    const popupHeight = 360; 
     let leftPos = x + 15;
     let topPos = y + 15;
 
-    // 边界检测：防止大弹窗超出屏幕
     if (leftPos + popupWidth > window.innerWidth) leftPos = window.innerWidth - popupWidth - 20;
     if (topPos + popupHeight > window.innerHeight) topPos = window.innerHeight - popupHeight - 20;
 
     popupIframe.style.cssText = `
-        position: fixed !important;
-        left: ${leftPos}px !important;
-        top: ${topPos}px !important;
-        width: ${popupWidth}px !important;
-        height: ${popupHeight}px !important;
-        z-index: 2147483647 !important;
-        border: 1px solid #d4c4a8 !important;
-        border-radius: 8px !important;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.2) !important;
-        background: #fbf8f1 !important;
-        pointer-events: auto !important;
-        transition: opacity 0.2s ease-in-out !important;
+        position: fixed !important; left: ${leftPos}px !important; top: ${topPos}px !important;
+        width: ${popupWidth}px !important; height: ${popupHeight}px !important;
+        z-index: 2147483647 !important; border: 1px solid #d4c4a8 !important; border-radius: 8px !important;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.2) !important; background: #fbf8f1 !important;
+        pointer-events: auto !important; transition: opacity 0.2s !important;
     `;
-
     document.body.appendChild(popupIframe);
 }
