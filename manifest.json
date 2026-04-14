@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "历史阅读地图辅助",
-  "version": "3.0",
+  "version": "3.1",
   "description": "辅助历史书籍阅读，动态解析历史地名并展示地图",
-  "permissions": ["background"],
+  "permissions": ["background", "storage"],
   "background": {
     "service_worker": "background.js"
   },
