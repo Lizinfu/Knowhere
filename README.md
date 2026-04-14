@@ -37,7 +37,7 @@
 * **地图工具**: 高德地图, leaflet
 
 ## 快速开始
-konWhere当前是非常基础的Chrome插件，将文件夹下载到本地即可。
+knoWhere当前是非常基础的Chrome插件，将文件夹下载到本地即可。
 在Chrome中进入chrome://extensions/，加载未打包的扩展程序即可使用
 
 ## 使用指南

@@ -7,7 +7,7 @@ const historyDict = {
 // const API_KEY = "API"; 
 // const API_URL = "https://api.siliconflow.cn/v1/chat/completions";
 const PROXY_URL = "https://knowhere.liezileiyin.workers.dev/"; // 代理地址
-const MODEL_NAME = "Qwen/Qwen3-8B"; 
+// const MODEL_NAME = "Qwen/Qwen3-8B"; 
 
 // 3. 核心请求函数 (新增 era 参数)
 async function queryLLMForLocation(placeName, era) {
