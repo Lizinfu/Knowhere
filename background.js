@@ -1,117 +1,110 @@
-// 1. 简易本地字典（最高优先级，用于修复那些百科写法奇葩的特例）
+// 1. 简易本地字典（做最高优先级的缓存或拦截）
 const historyDict = {
-    "长安": { lat: 34.2658, lon: 108.9541, name: "唐长安城（今西安）" },
-    "大都": { lat: 39.9042, lon: 116.4074, name: "元大都（今北京）" }
+    "长安": { lat: 34.2658, lon: 108.9541, name: "唐长安城（今西安）" }
 };
 
-// 2. 核心功能：从百度百科提取现代地名
-async function getModernNameFromBaike(historicalName) {
-    try {
-        // 请求百度百科的词条页面
-        const baikeUrl = `https://baike.baidu.com/item/${encodeURIComponent(historicalName)}`;
-        console.log(`【后台爬虫】正在访问百度百科: ${baikeUrl}`);
+// ==========================================
+// 2. AI 模型 API 配置 (请在这里填入你的配置)
+// ==========================================
+// 这里以硅基流动(SiliconFlow)的免费通义千问模型为例
+const API_KEY = "sk-urxnxupewxzopbjovmdkuglafegpyfixdhbtixgxdldkgizn"; // 👉 填入你的 API Key (例如 "sk-xxxxxxx")
+const API_URL = "https://api.siliconflow.cn/v1/chat/completions";
+const MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"; // 使用免费的 7B 模型
+
+// 3. 封装请求 AI 的函数
+async function queryLLMForLocation(placeName) {
+    // 如果没有配置 API Key，直接报错退出
+    if (!API_KEY) throw new Error("未配置 API Key");
+
+    // 核心：系统提示词 (Prompt Engineering)
+    // 强制要求 AI 扮演地理专家，并且【只】返回严格的 JSON 格式，不要任何废话。
+    const systemPrompt = `
+        你是一个精通中国和世界历史地理的专家。
+        用户会给你一个地名（可能是古代或现代的）。
+        请分析该地名对应的现代大致地理位置，并返回其中心点的经纬度。
         
-        const response = await fetch(baikeUrl, {
-            // 伪装成普通浏览器，防止被简单拦截
-            headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" }
-        });
+        【严格要求】
+        必须且只能返回一个合法的 JSON 对象，不要包含任何 markdown 标记（不要用 \`\`\`json 包裹），不要任何解释废话。
+        格式如下：
+        {"lat": 纬度数字, "lon": 经度数字, "name": "现代地名或说明"}
         
-        if (!response.ok) return null;
+        如果完全不知道，请返回 {"error": "not found"}
+    `;
 
-        const html = await response.text();
+    const response = await fetch(API_URL, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${API_KEY}`
+        },
+        body: JSON.stringify({
+            model: MODEL_NAME,
+            messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: placeName }
+            ],
+            temperature: 0.1 // 温度调低，保证结果严谨和稳定
+        })
+    });
 
-        // 使用正则提取网页头部的 <meta name="description" content="...">
-        const descMatch = html.match(/<meta\s+name=["']description["']\s+content=["'](.*?)["']/i);
-        if (!descMatch) return null;
-        
-        const description = descMatch[1];
-        console.log(`【后台爬虫】抓取到百科摘要: ${description}`);
-
-        // 使用正则表达式寻找“今xxx”的句式
-        // 匹配逻辑：找“今”，然后向后抓取 2到8个 中文字符，直到遇到标点符号或空格为止
-        const modernMatch = description.match(/今([^，。；、！\s（]{2,8}(?:市|县|省|区|镇|村)?)/);
-        
-        if (modernMatch && modernMatch[1]) {
-            let modernName = modernMatch[1];
-            // 清理一些可能附带的多余词汇，如“今陕西省西安市” -> 提取核心即可
-            console.log(`【后台爬虫】成功提取到现代地名: ${modernName}`);
-            return modernName;
-        }
-
-        return null;
-    } catch (error) {
-        console.error("【后台爬虫】抓取百科失败:", error);
-        return null;
-    }
-}
-
-// 3. 将地名转换为经纬度 (请求 OSM 接口)
-async function getCoordsFromOSM(placeName) {
-    const osmUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(placeName)}&format=json&limit=1`;
-    const response = await fetch(osmUrl);
-    const data = await response.json();
+    if (!response.ok) throw new Error(`AI 接口请求失败: ${response.status}`);
     
-    if (data && data.length > 0) {
-        return { lat: data[0].lat, lon: data[0].lon, name: data[0].display_name };
+    const data = await response.json();
+    let content = data.choices[0].message.content.trim();
+
+    // 尝试解析 AI 返回的 JSON 字符串
+    try {
+        return JSON.parse(content);
+    } catch (e) {
+        console.error("【后台】AI 返回格式错误，非 JSON:", content);
+        throw new Error("AI 返回数据格式解析失败");
     }
-    return null;
 }
 
-// 4. 监听来自 content.js 的划词请求
+// 4. 监听消息
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.type === "SEARCH_LOCATION") {
         const placeName = request.text;
         
-        // 使用 async 立即执行函数来处理复杂的异步工作流
-        (async () => {
-            try {
-                // 步骤一：查本地字典 (瞬间响应)
-                if (historyDict[placeName]) {
-                    console.log(`【后台】命中本地字典: ${placeName}`);
-                    sendResponse({ success: true, source: 'dictionary', data: historyDict[placeName] });
-                    return;
-                }
+        // 步骤一：查本地字典
+        if (historyDict[placeName]) {
+            console.log(`【后台】命中本地字典: ${placeName}`);
+            sendResponse({ success: true, source: 'dictionary', data: historyDict[placeName] });
+            return true; 
+        }
 
-                // 步骤二：尝试从百度百科推断现代地名
-                let targetSearchName = placeName; // 默认用原词去搜
-                let sourceNote = 'osm-direct';
-
-                const modernName = await getModernNameFromBaike(placeName);
-                if (modernName) {
-                    targetSearchName = modernName; // 把搜索词替换成现代地名，比如把"涿郡"替换成"河北省涿州市"
-                    sourceNote = `baike -> ${modernName}`;
-                }
-
-                // 步骤三：拿着最终确定的名字去请求 OSM 坐标
-                console.log(`【后台】准备向地图引擎搜索: ${targetSearchName}`);
-                const coords = await getCoordsFromOSM(targetSearchName);
-
-                if (coords) {
-                    sendResponse({ 
-                        success: true, 
-                        source: sourceNote, 
-                        data: { lat: coords.lat, lon: coords.lon, name: coords.name } 
-                    });
+        // 步骤二：查大模型
+        console.log(`【后台】正在向 AI 查询历史地名: ${placeName} ...`);
+        queryLLMForLocation(placeName)
+            .then(aiResult => {
+                if (aiResult.lat && aiResult.lon) {
+                    console.log("【后台】AI 解析成功:", aiResult);
+                    sendResponse({ success: true, source: 'ai', data: aiResult });
                 } else {
-                    // 如果用现代名没搜到，且之前替换过名字，作为最后的倔强，用原名再试一次
-                    if (modernName) {
-                        console.log(`【后台】现代名没搜到，退回使用原名搜索...`);
-                        const fallbackCoords = await getCoordsFromOSM(placeName);
-                        if (fallbackCoords) {
-                            sendResponse({ success: true, source: 'osm-fallback', data: fallbackCoords });
-                            return;
-                        }
-                    }
-                    sendResponse({ success: false, error: "无法在地图上定位该位置" });
+                    throw new Error("AI 未能找到坐标");
                 }
+            })
+            .catch(err => {
+                console.warn(`【后台】AI 查询失败，降级使用 OSM: ${err.message}`);
+                
+                // 步骤三：Fallback (AI 失败或没填 Key 时，使用原有的 OSM 接口兜底)
+                const osmUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(placeName)}&format=json&limit=1`;
+                fetch(osmUrl)
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data && data.length > 0) {
+                            sendResponse({ 
+                                success: true, 
+                                source: 'osm', 
+                                data: { lat: data[0].lat, lon: data[0].lon, name: data[0].display_name } 
+                            });
+                        } else {
+                            sendResponse({ success: false, error: "所有途径均未找到位置" });
+                        }
+                    })
+                    .catch(e => sendResponse({ success: false, error: e.message }));
+            });
 
-            } catch (err) {
-                console.error("【后台】主流程发生错误:", err);
-                sendResponse({ success: false, error: err.message });
-            }
-        })();
-
-        // 必须返回 true，告诉 Chrome 我们会异步调用 sendResponse
-        return true; 
+        return true; // 保持异步消息通道
     }
 });
