@@ -7,7 +7,7 @@ const historyDict = {
 // const API_KEY = "API"; 
 // const API_URL = "https://api.siliconflow.cn/v1/chat/completions";
 const PROXY_URL = "https://knowhere.liezileiyin.workers.dev/"; // 代理地址
-// const MODEL_NAME = "Qwen/Qwen3-8B"; 
+const MODEL_NAME = "LizinfuDAVinci-002"; // 模型名称，保持不变
 
 // 3. 核心请求函数 (新增 era 参数)
 async function queryLLMForLocation(placeName, era) {
@@ -87,20 +87,49 @@ async function queryLLMForLocation(placeName, era) {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.type === "SEARCH_LOCATION") {
         const { text, era } = request;
-        
-        console.log(`【后台】查询: ${text}, 朝代背景: ${era || '未指定'}`);
 
-        queryLLMForLocation(text, era)
-            .then(aiResult => {
-                if (aiResult.lat && aiResult.lon) {
-                    sendResponse({ success: true, source: 'ai', data: aiResult });
-                } else {
-                    throw new Error(aiResult.error || "未找到坐标");
-                }
-            })
-            .catch(err => {
-                sendResponse({ success: false, error: err.message });
-            });
+        // 定义一个调用 OSM 的兜底函数
+        const fallbackToOSM = () => {
+            console.log("【后台】启动兜底 OSM 检索...");
+            const osmUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(text)}&format=json&limit=1`;
+            fetch(osmUrl)
+                .then(res => res.json())
+                .then(data => {
+                    if (data && data.length > 0) {
+                        sendResponse({ 
+                            success: true, source: 'osm', 
+                            data: { lat: data[0].lat, lon: data[0].lon, name: data[0].display_name, desc: "AI服务器繁忙，已自动切换为现代地理地图。" } 
+                        });
+                    } else {
+                        sendResponse({ success: false, error: "未找到该地名。" });
+                    }
+                })
+                .catch(e => sendResponse({ success: false, error: "网络异常。" }));
+        };
+
+        // 尝试调用你的 AI Worker
+        fetch(PROXY_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ messages: [{ role: "user", content: `背景:${era}, 地名:${text}` }] })
+        })
+        .then(async res => {
+            if (!res.ok) throw new Error("Worker 返回了错误状态码");
+            return await res.json();
+        })
+        .then(aiResult => {
+            // 这里判断是否是合法的 AI 数据
+            if (aiResult.lat && aiResult.lon) {
+                sendResponse({ success: true, source: 'ai', data: aiResult });
+            } else {
+                // AI 接口通了，但返回的内容格式不对，也转去兜底
+                fallbackToOSM();
+            }
+        })
+        .catch(err => {
+            // 这里捕获了所有的 Worker 错误 (包括 503, 500, 网络断开)
+            fallbackToOSM();
+        });
 
         return true; 
     }
