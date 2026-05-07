@@ -58,28 +58,95 @@ async function queryLLMForLocation(placeName, era) {
     }
     
     const data = await response.json();
-    let content = data.choices[0].message.content.trim();
+    // 打印原始返回以便排查不同代理/模型的返回格式
+    console.log('【后台】原始模型返回:', data);
 
-    // 强力清洗：去除可能包含的 markdown json 标记
-    content = content.replace(/```json/gi, '').replace(/```/g, '').trim();
-
+    // 从常见字段中提取文本内容，兼容多种代理/模型返回格式
+    let content = '';
     try {
-        // 先尝试标准解析
-        return JSON.parse(content);
-    } catch (e) {
-        console.warn("【后台】标准解析失败，尝试正则表达式修复...");
-        try {
-            // 正则匹配 { ... } 部分
-            const match = content.match(/\{[\s\S]*\}/);
-            if (match) {
-                // 修复诸如 "111. 666" 这种非法数字格式（移除点号后的空格）
-                let fixedContent = match[0].replace(/(\d+)\.\s+(\d+)/g, '$1.$2');
-                return JSON.parse(fixedContent);
-            }
-        } catch (e2) {
-            console.error("【后台】彻底解析失败:", content);
-            throw new Error("AI 返回数据无法被解析");
+        if (data && data.choices && data.choices.length > 0) {
+            // OpenAI/类似格式
+            if (data.choices[0].message && data.choices[0].message.content) content = data.choices[0].message.content;
+            else if (data.choices[0].text) content = data.choices[0].text;
+        } else if (data && typeof data.output === 'string') {
+            content = data.output;
+        } else if (data && typeof data.result === 'string') {
+            content = data.result;
+        } else if (typeof data === 'string') {
+            content = data;
+        } else if (data && (data.lat || data.longitude || data.lon)) {
+            // 直接返回坐标对象的情况
+            return {
+                lat: parseFloat(data.lat || data.latitude || data.latitude),
+                lon: parseFloat(data.lon || data.lonitude || data.longitude || data.lng),
+                name: data.name || data.display_name || '' ,
+                desc: data.desc || data.description || ''
+            };
+        } else {
+            // 兜底：把整个对象序列化后尝试解析其中的 JSON
+            content = JSON.stringify(data);
         }
+
+        if (!content) content = '';
+
+        // 强力清洗：去除可能包含的 markdown json 标记
+        content = content.replace(/```json/gi, '').replace(/```/g, '').trim();
+
+        // 首先尝试直接解析整个内容
+        try {
+            const parsed = JSON.parse(content);
+            // 确保 lat/lon 为数字
+            if (parsed && (parsed.lat || parsed.latitude || parsed.latitude) && (parsed.lon || parsed.longitude || parsed.lng)) {
+                return {
+                    lat: parseFloat(parsed.lat || parsed.latitude || parsed.latitude),
+                    lon: parseFloat(parsed.lon || parsed.longitude || parsed.lng),
+                    name: parsed.name || parsed.display_name || '',
+                    desc: parsed.desc || parsed.description || ''
+                };
+            }
+            // 如果解析后不是期望的格式，继续后续处理
+        } catch (e) {
+            // 解析失败，继续尝试正则抽取
+        }
+
+        // 正则匹配 { ... } 部分并尝试修复常见格式问题
+        const match = content.match(/\{[\s\S]*\}/);
+        if (match) {
+            let fixedContent = match[0].replace(/(\d+)\.\s+(\d+)/g, '$1.$2');
+            try {
+                const parsed2 = JSON.parse(fixedContent);
+                if (parsed2 && (parsed2.lat || parsed2.latitude || parsed2.latitude) && (parsed2.lon || parsed2.longitude || parsed2.lng)) {
+                    return {
+                        lat: parseFloat(parsed2.lat || parsed2.latitude || parsed2.latitude),
+                        lon: parseFloat(parsed2.lon || parsed2.longitude || parsed2.lng),
+                        name: parsed2.name || parsed2.display_name || '',
+                        desc: parsed2.desc || parsed2.description || ''
+                    };
+                }
+            } catch (e2) {
+                console.warn('【后台】正则提取到 JSON，但解析失败，内容：', fixedContent);
+            }
+        }
+
+        // 最后尝试在序列化的对象中查找坐标键
+        try {
+            const lowered = content.toLowerCase();
+            const latMatch = lowered.match(/"lat"\s*[:=]\s*([\d\.\-]+)/) || lowered.match(/"latitude"\s*[:=]\s*([\d\.\-]+)/);
+            const lonMatch = lowered.match(/"lon"\s*[:=]\s*([\d\.\-]+)/) || lowered.match(/"longitude"\s*[:=]\s*([\d\.\-]+)/) || lowered.match(/"lng"\s*[:=]\s*([\d\.\-]+)/);
+            if (latMatch && lonMatch) {
+                return { lat: parseFloat(latMatch[1]), lon: parseFloat(lonMatch[1]), name: '', desc: '' };
+            }
+        } catch (e) {
+            // ignore
+        }
+
+        // 如果最终仍然无法解析出坐标，抛出以触发兜底
+        console.error('【后台】AI 返回无法解析为坐标的内容:', content);
+        throw new Error('AI 返回数据无法被解析为坐标');
+
+    } catch (finalErr) {
+        console.error('【后台】处理模型返回时出错:', finalErr);
+        throw finalErr;
     }
 }
 
@@ -107,30 +174,25 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 .catch(e => sendResponse({ success: false, error: "网络异常。" }));
         };
 
-        // 尝试调用你的 AI Worker
-        fetch(PROXY_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ messages: [{ role: "user", content: `背景:${era}, 地名:${text}` }] })
-        })
-        .then(async res => {
-            if (!res.ok) throw new Error("Worker 返回了错误状态码");
-            return await res.json();
-        })
-        .then(aiResult => {
-            // 这里判断是否是合法的 AI 数据
-            if (aiResult.lat && aiResult.lon) {
-                sendResponse({ success: true, source: 'ai', data: aiResult });
-            } else {
-                // AI 接口通了，但返回的内容格式不对，也转去兜底
+        // 尝试调用你的 AI 核心函数
+        queryLLMForLocation(text, era)
+            .then(aiResult => {
+                // 验证 AI 返回的数据是否有效（使用 != null 以接受字符串数字）
+                if (aiResult && aiResult.lat != null && aiResult.lon != null) {
+                    sendResponse({ success: true, source: 'ai', data: aiResult });
+                } else if (aiResult && aiResult.error === "not found") {
+                    sendResponse({ success: false, error: "AI表示找不到该历史地名。" });
+                } else {
+                    console.warn("【后台】AI 返回格式缺失 lat/lon，转入兜底:", aiResult);
+                    fallbackToOSM();
+                }
+            })
+            .catch(err => {
+                console.error("【后台】AI 请求彻底失败:", err);
+                // 捕获请求异常，触发兜底
                 fallbackToOSM();
-            }
-        })
-        .catch(err => {
-            // 这里捕获了所有的 Worker 错误 (包括 503, 500, 网络断开)
-            fallbackToOSM();
-        });
+            });
 
-        return true; 
+        return true; // 保持异步响应通道打开
     }
 });

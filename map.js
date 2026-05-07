@@ -18,23 +18,51 @@ if (queryText) {
     const eraDisplay = queryEra ? `[${queryEra}] ` : '';
     document.getElementById('display-query').innerText = `检索: ${eraDisplay}"${queryText}"`;
 
-    // 将 text 和 era 一同发给后台
+    // ========== 打印华丽的分割线，方便识别一次新的查询 ==========
+    console.log(`%c[插件开始请求] %c准备检索地名: %c"${queryText}" %c(朝代: ${queryEra || '未指定'})`,
+        "color: white; background: #28a745; padding: 2px 4px; border-radius: 3px;",
+        "color: #333; font-weight: bold;",
+        "color: #d35400; font-weight: bold;",
+        "color: #7f8c8d;"
+    );
+
     chrome.runtime.sendMessage({ type: "SEARCH_LOCATION", text: queryText, era: queryEra }, function(response) {
+        
+        // --- 新增：详细打印后台返回的核心状态 ---
         if (response && response.success) {
-            showScreen('map-container');
+            console.log(`%c[后台响应成功] %c数据来源: %c${response.source.toUpperCase()}`,
+                "color: white; background: #007bff; padding: 2px 4px; border-radius: 3px;",
+                "color: #333; font-weight: bold;",
+                "color: #e67e22; font-weight: bold;"
+            );
+            console.log("【解析出的具体数据】:", response.data);
             
+            showScreen('map-container');
             document.getElementById('display-name').innerText = response.data.name || queryText;
             
-            // 渲染底部介绍文本
             const descEl = document.getElementById('desc-bar');
             if (response.data.desc) {
                 descEl.innerText = response.data.desc;
             } else {
-                descEl.style.display = 'none'; // 如果AI没返回，就隐藏该区域
+                descEl.style.display = 'none';
             }
+            // 确保坐标为数字类型
+            const latNum = parseFloat(response.data.lat);
+            const lonNum = parseFloat(response.data.lon);
+            if (isNaN(latNum) || isNaN(lonNum)) {
+                console.error('Invalid coordinates from backend:', response.data);
+                showScreen('screen-error');
+                document.getElementById('error-msg').innerText = '返回的坐标无效';
+                return;
+            }
+            initMap(latNum, lonNum);
             
-            initMap(response.data.lat, response.data.lon);
         } else {
+            console.error(`%c[后台响应失败] %c原因: ${response ? response.error : '未知通信断裂'}`,
+                "color: white; background: #dc3545; padding: 2px 4px; border-radius: 3px;",
+                "color: #c0392b; font-weight: bold;"
+            );
+            
             showScreen('screen-error');
             if (response && response.error) {
                 document.getElementById('error-msg').innerText = `未能定位: ${response.error}`;
