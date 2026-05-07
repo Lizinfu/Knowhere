@@ -76,11 +76,66 @@ if (queryText) {
 
 function initMap(lat, lon) {
     setTimeout(() => {
-        const map = L.map('map').setView([lat, lon], 11);
-        L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
-            subdomains: ["1", "2", "3", "4"],
-            attribution: '&copy; 高德地图'
+        const map = L.map('map').setView([lat, lon], 7); // 缩放级别7适合看省际大势
+
+        // ESRI 的物理地形图，色调非常复古，适合历史阅读
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Physical_Map/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Tiles &copy; Esri',
+            maxZoom: 8 // 地形图通常不支持太大的缩放级别
         }).addTo(map);
-        L.marker([lat, lon]).addTo(map);
+
+        // 2. 加载目标地点的复古朱批标记
+        const ancientIcon = L.divIcon({
+            className: 'custom-ancient-icon',
+            html: `<div style="
+                width: 14px; height: 14px; 
+                background-color: #c0392b; 
+                border: 2px solid #fbf8f1; 
+                border-radius: 50%; 
+                box-shadow: 0 0 5px rgba(0,0,0,0.5);
+            "></div>`,
+            iconSize: [18, 18],
+            iconAnchor: [9, 9]
+        });
+        L.marker([lat, lon], { icon: ancientIcon }).addTo(map);
+
+        // ================= 新增：加载行政区划边界与文字 =================
+        // 使用阿里云 DataV 提供的全国省份 GeoJSON
+        fetch('https://geo.datav.aliyun.com/areas_v3/bound/100000_full.json')
+            .then(res => res.json())
+            .then(data => {
+                // 绘制省份边界（水墨线风格）
+                L.geoJSON(data, {
+                    style: {
+                        color: "#e6d8b8", // 接近宣纸的淡黄色/墨线色
+                        weight: 1.5,      // 线条粗细
+                        opacity: 0.6,     // 半透明，不喧宾夺主
+                        fillOpacity: 0,   // 内部不填充颜色，露出地形
+                        dashArray: '5, 5' // 虚线效果，更像标注
+                    }
+                }).addTo(map);
+
+                // 为每个省份添加古风文字标注
+                data.features.forEach(feature => {
+                    const props = feature.properties;
+                    // 只要有中心点坐标和名字，就打上文字标签
+                    if (props.centroid && props.centroid.length === 2 && props.name) {
+                        const labelIcon = L.divIcon({
+                            className: 'ancient-province-label',
+                            // 去掉“省”、“市”等现代行政后缀，更有历史感
+                            html: `<div>${props.name.replace(/(省|市|自治区|回族|壮族|维吾尔|特别行政区)/g, '')}</div>`,
+                            iconSize: [40, 20],
+                            iconAnchor: [20, 10]
+                        });
+                        L.marker([props.centroid[1], props.centroid[0]], { 
+                            icon: labelIcon,
+                            interactive: false // 文字不需要点击交互
+                        }).addTo(map);
+                    }
+                });
+            })
+            .catch(err => console.log("加载行政区划失败", err));
+            // ==============================================================
+            
     }, 50);
 }

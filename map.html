@@ -18,7 +18,44 @@
         #map-container.active { display: flex; }
         #top-bar { height: 28px; background: #f5ebce; border-bottom: 1px solid #d4c4a8; line-height: 28px; padding: 0 10px; font-size: 13px; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 2px 4px rgba(0,0,0,0.05); z-index: 1000; }
         
-        #map { flex: 1; width: 100%; } /* 地图占据剩余空间 */
+        /* 修改 map.html 中的 #map 样式 */
+        #map { 
+            flex: 1; 
+            width: 100%; 
+            background-color: #e8dec9; /* 地图加载前的底色，用复古纸张色 */
+        }
+
+        /* 省份名称文字样式：楷体、半透明、带有一点描边以防与底图融合 */
+        .ancient-province-label {
+            font-family: 'Kaiti', 'STKaiti', '楷体', serif;
+            font-size: 16px;
+            font-weight: bold;
+            color: #e6d8b8; /* 古籍纸张的颜色 */
+            text-shadow: 
+                -1px -1px 0 rgba(40,25,15,0.8),  
+                1px -1px 0 rgba(40,25,15,0.8),
+                -1px  1px 0 rgba(40,25,15,0.8),
+                1px  1px 0 rgba(40,25,15,0.8); /* 深棕色描边，增加可读性 */
+            text-align: center;
+            letter-spacing: 2px;
+            opacity: 0.8; /* 稍微透明，融入地图 */
+            pointer-events: none; /* 让鼠标穿透文字，不影响地图拖拽 */
+        }
+
+        /* 之前加的滤镜保持不变，或者只加在底图图层上 */
+        .leaflet-tile-pane {
+            filter: sepia(0.5) contrast(1.1) grayscale(0.2) hue-rotate(-5deg);
+        }
+
+        /* 神奇的复古滤镜：让地图图层变成泛黄、降低对比度、带点水墨感
+        .leaflet-tile-pane {
+            filter: sepia(0.6) contrast(0.9) grayscale(0.3) hue-rotate(-10deg) brightness(0.9);
+        } */
+
+        /* 隐藏 Leaflet 默认的版权信息控件，让界面更干净（可选） */
+        .leaflet-control-attribution {
+            display: none !important;
+        }
         
         /* 新增：底部介绍文本区域 */
         #desc-bar { 
